@@ -13,6 +13,7 @@ namespace PcapAnalyzer
 
         public List<string> AvailableModulesNames => _availbleModules.Select(m => m.Name).ToList();
         public List<string> LoadedModulesNames => _loadedModules.Select(m => m.Name).ToList();
+        public IEnumerable<IModule> AvailableModules => _availbleModules.ToList();
 
 
         public Analyzer()
@@ -58,32 +59,32 @@ namespace PcapAnalyzer
             
         }
 
-        // TODO: use template instead this 3 functions (or change all design)
-        // TODO: try catch so if one module will fail..
-        public void Analyze(UdpPacket udpPacket)
+        public void Analyze(object item)
         {
             foreach (var module in _loadedModules)
             {
-                module.Analyze(udpPacket);
+                if (item is UdpPacket)
+                {
+                    Utilities.SafeRun(() => module.Analyze(item as UdpPacket));
+                }
+                else if (item is UdpStream)
+                {
+                    Utilities.SafeRun(() => module.Analyze(item as UdpStream));
+                }
+                else if (item is TcpPacket)
+                {
+                    Utilities.SafeRun(() => module.Analyze(item as TcpPacket));
+                }
+                else if (item is TcpSession)
+                {
+                    Utilities.SafeRun(() => module.Analyze(item as TcpSession));
+                }
+                else
+                {
+                    throw new Exception("Unsupported type for analyzer");
+                }
             }
         }
-
-        public void Analyze(TcpPacket tcpPacket)
-        {
-            foreach (var module in _loadedModules)
-            {
-                module.Analyze(tcpPacket);
-            }
-        }
-
-        public void Analyze(TcpSession tcpSession)
-        {
-            foreach (var module in _loadedModules)
-            {
-                module.Analyze(tcpSession);
-            }
-        }
-
-
+        
     }
 }

@@ -13,7 +13,9 @@ namespace BruteSharkCli
     internal class BruteSharkCli
     {
         private ulong _tcpPacketsCount;
+        private ulong _udpPacketsCount;
         private int _tcpSessionsCount;
+        private int _udpStreamsCount;
         private PcapProcessor.Processor _processor;
         private PcapAnalyzer.Analyzer _analyzer;
         private List<string> _files;
@@ -21,16 +23,20 @@ namespace BruteSharkCli
         private HashSet<PcapAnalyzer.NetworkHash> _hashes;
         private object _printingLock;
         private CliShell _shell;
-        
+        private HashSet<PcapAnalyzer.NetworkConnection> _connections;
+
 
         public BruteSharkCli()
         {
             _tcpPacketsCount = 0;
+            _udpPacketsCount = 0;
+            _udpStreamsCount = 0;
             _tcpSessionsCount = 0;
             _printingLock = new object();
             _passwords = new HashSet<PcapAnalyzer.NetworkPassword>();
             _hashes = new HashSet<NetworkHash>();
             _files = new List<string>();
+            _connections = new HashSet<NetworkConnection>();
 
             _processor = new PcapProcessor.Processor();
             _analyzer = new PcapAnalyzer.Analyzer();
@@ -38,22 +44,29 @@ namespace BruteSharkCli
 
             // TODO: create command for this.
             _processor.BuildTcpSessions = true;
+            _processor.BuildUdpSessions = true;
             LoadAllModules();
 
             // Contract the events.
             _processor.UdpPacketArived += (s, e) => _analyzer.Analyze(CastProcessorUdpPacketToAnalyzerUdpPacket(e.Packet));
             _processor.TcpPacketArived += (s, e) => _analyzer.Analyze(CastProcessorTcpPacketToAnalyzerTcpPacket(e.Packet));
             _processor.TcpPacketArived += (s, e) => this.UpdateTcpPacketsCount();
-            _processor.TcpSessionArived += (s, e) => this.UpdateTcpSessionsCount();
-            _processor.TcpSessionArived += (s, e) => _analyzer.Analyze(CastProcessorTcpSessionToAnalyzerTcpSession(e.TcpSession));
+            _processor.UdpPacketArived += (s, e) => this.UpdateUdpPacketsCount();
+            _processor.TcpSessionArrived += (s, e) => this.UpdateTcpSessionsCount();
+            _processor.UdpSessionArrived += (s, e) => this.UpdateUdpStreamsCount();
+            _processor.TcpSessionArrived += (s, e) => _analyzer.Analyze(CastProcessorTcpSessionToAnalyzerTcpSession(e.TcpSession));
+            _processor.UdpSessionArrived += (s, e) => _analyzer.Analyze(CastProcessorUdpStreamToAnalyzerUdpStream(e.UdpSession));
             _analyzer.ParsedItemDetected += OnParsedItemDetected;
 
             // Add commands to the Cli Shell.
-            _shell.AddCommand(new CliShellCommand("add-file", p => _files.Add(p), "Add file to analyze. Usage: add-file <FILE-PATH>"));
+            _shell.AddCommand(new CliShellCommand("add-file", p => AddFile(p), "Add file to analyze. Usage: add-file <FILE-PATH>"));
             _shell.AddCommand(new CliShellCommand("start", p => StartAnalyzing(), "Start analyzing"));
             _shell.AddCommand(new CliShellCommand("show-passwords", p => PrintPasswords(), "Print passwords."));
+            _shell.AddCommand(new CliShellCommand("show-modules", p => PrintModules(), "Print modules."));
             _shell.AddCommand(new CliShellCommand("show-hashes", p => PrintHashes(), "Print Hashes"));
+            _shell.AddCommand(new CliShellCommand("show-networkmap", p => PrintNetworkMap(), "Prints the network map as a json string. Usage: show-networkmap"));
             _shell.AddCommand(new CliShellCommand("export-hashes", p => ExportHashes(p), "Export all Hashes to Hascat format input files. Usage: export-hashes <OUTPUT-DIRECTORY>"));
+            _shell.AddCommand(new CliShellCommand("export-networkmap", p => ExportNetworkMap(p), "Export network map to a json file for neo4j. Usage: export-networkmap <OUTPUT-file>"));
 
         }
 
@@ -75,16 +88,25 @@ namespace BruteSharkCli
             {
                 _hashes.Add(e.ParsedItem as PcapAnalyzer.NetworkHash);
             }
+            if (e.ParsedItem is PcapAnalyzer.NetworkConnection)
+            {
+                var networkConnection = e.ParsedItem as NetworkConnection;
+                _connections.Add(networkConnection);
+            }
 
             UpdateAnalyzingStatus();
         }
 
         private void UpdateTcpSessionsCount()
         {
-            if (++_tcpSessionsCount % 10 == 0)
-            {
-                UpdateAnalyzingStatus();
-            }
+            ++_tcpSessionsCount;
+            UpdateAnalyzingStatus();
+        }
+
+        private void UpdateUdpStreamsCount()
+        {
+            ++_udpStreamsCount;
+            UpdateAnalyzingStatus();
         }
 
         private void UpdateTcpPacketsCount()
@@ -95,16 +117,25 @@ namespace BruteSharkCli
             }
         }
 
+        private void UpdateUdpPacketsCount()
+        {
+            if (++_udpPacketsCount % 10 == 0)
+            {
+                UpdateAnalyzingStatus();
+            }
+        }
+
         private void UpdateAnalyzingStatus()
         {
             lock (_printingLock)
             {
                 Console.ForegroundColor = ConsoleColor.Blue;
-                Console.WriteLine($"\r[+] Packets Analyzed: {++_tcpPacketsCount}");
-                Console.WriteLine($"\r[+] Sessions Analyzed: {++_tcpSessionsCount}");
+                Console.WriteLine($"\r[+] Packets Analyzed: {_tcpPacketsCount + _udpPacketsCount}, " + $"TCP: {_tcpPacketsCount} " + $"UDP: {_udpPacketsCount}");
+                Console.WriteLine($"\r[+] TCP Sessions Analyzed: {_tcpSessionsCount}" + $" UDP Streams Analyzed: {_udpStreamsCount}");
                 Console.WriteLine($"\r[+] Passwords Found: {_passwords.Count}");
                 Console.WriteLine($"\r[+] Hashes Found: {_hashes.Count}");
-                Console.SetCursorPosition(0, Console.CursorTop - 4);
+                Console.WriteLine($"\r[+] Network Connections Found: {_connections.Count}");
+                Console.SetCursorPosition(0, Console.CursorTop - 5);
                 Console.ForegroundColor = ConsoleColor.White;
             }
         }
@@ -146,6 +177,32 @@ namespace BruteSharkCli
             };
         }
 
+        private PcapAnalyzer.UdpStream CastProcessorUdpStreamToAnalyzerUdpStream(PcapProcessor.UdpSession udpStream)
+        {
+            return new PcapAnalyzer.UdpStream()
+            {
+                SourceIp = udpStream.SourceIp,
+                DestinationIp = udpStream.DestinationIp,
+                SourcePort = udpStream.SourcePort,
+                DestinationPort = udpStream.DestinationPort,
+                Data = udpStream.Data,
+                Packets = udpStream.Packets.Select(p => CastProcessorUdpPacketToAnalyzerUdpPacket(p)).ToList()
+            };
+        }
+
+        private void AddFile(string filePath)
+        {
+            if (File.Exists(filePath))
+            {
+                _files.Add(filePath);
+            }
+            else
+            {
+                Console.WriteLine("File does not exist.");
+            }
+
+        }
+
         internal void Start()
         {
             Utilities.PrintBruteSharkAsciiArt();
@@ -163,10 +220,23 @@ namespace BruteSharkCli
             this._hashes.ToDataTable(itemLengthLimit:15).Print();
         }
 
+        private void PrintNetworkMap()
+        {
+            Console.WriteLine(NetwrokMapJsonExporter.GetNetworkMapAsJsonString(this._connections.ToList()));
+        }
+
+        private void PrintModules()
+        {
+            foreach (string module in this._analyzer.AvailableModulesNames)
+            {
+                Console.WriteLine($" - {module}");
+            }
+        }
+
         private void StartAnalyzing()
         {
             _processor.ProcessPcaps(this._files);
-            Console.SetCursorPosition(0, Console.CursorTop + 4);
+            Console.SetCursorPosition(0, Console.CursorTop + 5);
         }
 
         public string MakeUnique(string path)
@@ -182,6 +252,15 @@ namespace BruteSharkCli
 
                 path = Path.Combine(dir, fileName + " " + i + fileExt);
             }
+        }
+
+        private void ExportNetworkMap(string filePath)
+        {
+            PcapAnalyzer.NetwrokMapJsonExporter.FileExport(
+                connections: this._connections.ToList<PcapAnalyzer.NetworkConnection>(), 
+                filePath: filePath);
+
+            Console.WriteLine("Successfully exported network map to json file: " + filePath);
         }
 
         private void ExportHashes(string filePath)

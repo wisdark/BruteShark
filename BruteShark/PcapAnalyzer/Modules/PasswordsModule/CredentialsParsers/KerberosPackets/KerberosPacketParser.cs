@@ -11,7 +11,8 @@ namespace PcapAnalyzer
         // 13 - Get service ticket (Response to KRB_TGS_REQ request)
         public enum MessageType : byte
         {
-            krb_tgs_rep = 13,
+            krb_as_rep = 11,
+            krb_tgs_rep = 13
         }
 
         public static object GetKerberosPacket(byte[] kerberosBuffer)
@@ -23,19 +24,15 @@ namespace PcapAnalyzer
             {
                 AsnElt asn_object = AsnElt.Decode(asn_buffer);
 
-                try
+                // Get the application number
+                switch (asn_object.TagValue)
                 {
-                    // Get the application number
-                    switch (asn_object.TagValue)
-                    {
-                        case (int)MessageType.krb_tgs_rep:
-                            result = new KerberosTgsRepPacket(kdc_rep: asn_object.Sub[0].Sub);
-                            break;
-                    }
-                }
-                catch
-                { 
-                    // TODO: log
+                    case (int)MessageType.krb_tgs_rep:
+                        result = new KerberosTgsRepPacket(kdc_rep: asn_object.Sub[0].Sub);
+                        break;
+                    case (int)MessageType.krb_as_rep:
+                        result = new KerberosAsRepPacket(kdc_rep: asn_object.Sub[0].Sub);
+                        break;
                 }
             }
 

@@ -9,10 +9,11 @@ namespace BruteSharkDesktop
 {
     public static class Casting
     {
-        public static BruteSharkDesktop.TcpPacket CastProcessorTcpPacketToBruteSharkDesktopTcpPacket(PcapProcessor.TcpPacket tcpPacket)
+        public static BruteSharkDesktop.TransportLayerPacket CastProcessorTcpPacketToBruteSharkDesktopTcpPacket(PcapProcessor.TcpPacket tcpPacket)
         {
-            return new BruteSharkDesktop.TcpPacket()
+            return new BruteSharkDesktop.TransportLayerPacket()
             {
+                Protocol = "TCP",
                 SourceIp = tcpPacket.SourceIp,
                 DestinationIp = tcpPacket.DestinationIp,
                 SourcePort = tcpPacket.SourcePort,
@@ -21,16 +22,44 @@ namespace BruteSharkDesktop
             };
         }
 
-        public static BruteSharkDesktop.TcpSession CastProcessorTcpSessionToBruteSharkDesktopTcpSession(PcapProcessor.TcpSession tcpSession)
+        public static BruteSharkDesktop.TransportLayerPacket CastProcessorUdpPacketToBruteSharkDesktopUdpPacket(PcapProcessor.UdpPacket udpPacket)
         {
-            return new BruteSharkDesktop.TcpSession()
+            return new BruteSharkDesktop.TransportLayerPacket()
             {
+                Protocol = "UDP",
+                SourceIp = udpPacket.SourceIp,
+                DestinationIp = udpPacket.DestinationIp,
+                SourcePort = udpPacket.SourcePort,
+                DestinationPort = udpPacket.DestinationPort,
+                Data = udpPacket.Data
+            };
+        }
+
+        public static BruteSharkDesktop.TransportLayerSession CastProcessorTcpSessionToBruteSharkDesktopTcpSession(PcapProcessor.TcpSession tcpSession)
+        {
+            return new BruteSharkDesktop.TransportLayerSession()
+            {
+                Protocol = "TCP",
                 SourceIp = tcpSession.SourceIp,
                 DestinationIp = tcpSession.DestinationIp,
                 SourcePort = tcpSession.SourcePort,
                 DestinationPort = tcpSession.DestinationPort,
                 Data = tcpSession.Data,
                 Packets = tcpSession.Packets.Select(p => CastProcessorTcpPacketToBruteSharkDesktopTcpPacket(p)).ToList()
+            };
+        }
+
+        public static BruteSharkDesktop.TransportLayerSession CastProcessorUdpSessionToBruteSharkDesktopUdpSession(PcapProcessor.UdpSession udpSession)
+        {
+            return new BruteSharkDesktop.TransportLayerSession()
+            {
+                Protocol = "UDP",
+                SourceIp = udpSession.SourceIp,
+                DestinationIp = udpSession.DestinationIp,
+                SourcePort = udpSession.SourcePort,
+                DestinationPort = udpSession.DestinationPort,
+                Data = udpSession.Data,
+                Packets = udpSession.Packets.Select(p => CastProcessorUdpPacketToBruteSharkDesktopUdpPacket(p)).ToList()
             };
         }
 
@@ -96,6 +125,10 @@ namespace BruteSharkDesktop
             {
                 res = CastAnalyzerHashToBruteForceHash(hash as PcapAnalyzer.KerberosTgsRepHash);
             }
+            else if (hash is PcapAnalyzer.KerberosAsRepHash)
+            {
+                res = CastAnalyzerHashToBruteForceHash(hash as PcapAnalyzer.KerberosAsRepHash);
+            }
             else
             {
                 throw new Exception("Hash type not supported");
@@ -104,6 +137,7 @@ namespace BruteSharkDesktop
             return res;
         }
 
+        // TODO: refactor this duplicate code
         private static Hash CastAnalyzerHashToBruteForceHash(PcapAnalyzer.KerberosTgsRepHash kerberosTgsRepHash)
         {
             return new BruteForce.KerberosTgsRepHash()
@@ -112,6 +146,17 @@ namespace BruteSharkDesktop
                 Realm = kerberosTgsRepHash.Realm,
                 HashedData = kerberosTgsRepHash.Hash,
                 Username = kerberosTgsRepHash.Username
+            };
+        }
+
+        private static Hash CastAnalyzerHashToBruteForceHash(PcapAnalyzer.KerberosAsRepHash kerberosAsRepHash)
+        {
+            return new BruteForce.KerberosAsRepHash()
+            {
+                ServiceName = kerberosAsRepHash.ServiceName,
+                Realm = kerberosAsRepHash.Realm,
+                HashedData = kerberosAsRepHash.Hash,
+                Username = kerberosAsRepHash.Username
             };
         }
 
